@@ -1,0 +1,15 @@
+Atividade 3 – ED1
+Prof. Marcus Vinicius Maltempi
+1. Considere as sequências de caracteres: 'C', 'aCa', 'abCba', 'baCab', 'aabCbaa',
+'abaaCaaba'... . Uma sequência típica nesse conjunto pode ser descrita como wCwR,
+na qual w contém a sequência de a's e b's, ou w é vazia, e wR é o reverso de w. Por
+exemplo, se w = 'abb', então wR = 'bba'. Dada uma sequência de caracteres X de
+entrada qualquer (lida caractere por caractere a partir do teclado), faça um
+programa em C que use uma ÚNICA estrutura do tipo pilha (não é permitido
+usar nenhuma outra estrutura auxiliar) para responder (na forma de
+mensagem) se X pertence ou não ao conjunto de sequências, podendo ser descrito
+por wCwR. Considerar que a sequência de entrada nunca é vazia, que 'C' aparece
+uma única vez e que somente a's e b's aparecem em w.
+Obs.: para resolver será necessário criar programas que inicializem
+adequadamente as estruturas utilizadas. Resolva utilizando alocação estática e
+dinâmica (dois programas).
