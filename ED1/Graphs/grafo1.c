@@ -14,6 +14,10 @@ typedef struct{
     Aresta* arestas;
 } Grafo;
 
+typedef struct{
+    int pai, rank;
+}Subconjunto;
+
 Grafo* lerGrafoDeArquivo(const char* nome_arquivo){
     FILE *arquivo = fopen(nome_arquivo, "r");
     if(!arquivo){
@@ -49,6 +53,81 @@ Grafo* lerGrafoDeArquivo(const char* nome_arquivo){
     fclose(arquivo);
     return grafo;
     
+}
+
+void mostraGrau(Grafo* grafo){
+
+    if(grafo->tipo == 'G'){
+        for(int i = 0; i < grafo->num_vertices; i++){
+            int grau = 0;
+            for(int j = 0; j < grafo->num_arestas; j++){
+                if(i + 1 == grafo->arestas[j].vi || i + 1 == grafo->arestas[j].vj){
+                    grau++;
+                }
+            }
+            printf("vertice %d possui grau %d\n",i+1,grau);
+        }
+    }
+    else if(grafo->tipo == 'D'){
+        for(int i = 0; i < grafo->num_vertices; i++){
+            int grau_entrada = 0;
+            int grau_saida = 0;
+            for(int j = 0; j < grafo->num_arestas; j++){
+                if(grafo->arestas[j].vj == i + 1) grau_entrada++;
+                if(grafo->arestas[j].vi == i + 1) grau_saida++;
+            }
+            printf("Vértice %d possui grau de entrada %d e grau de saída %d\n", i + 1, grau_entrada, grau_saida);
+        }
+    }
+}
+
+void gerarMatrizAdjacencias(Grafo* grafo, const char* nome_arquivo){
+    if(!grafo){
+        printf("Grafo inválido. \n");
+        return;
+    }
+
+    float** matriz = (float**)malloc(grafo->num_vertices * sizeof(float*));
+    for(int i = 0; i < grafo->num_vertices; i++){
+        matriz[i] = (float*) calloc(grafo->num_arestas, sizeof(float));
+    }
+
+    for(int i = 0; i < grafo->num_arestas; i++){
+        int vi = grafo->arestas[i].vi - 1;
+        int vj = grafo->arestas[i].vj - 1;
+        float peso = grafo->arestas[i].peso;
+
+        matriz[vi][vj] = peso ? peso : 1;
+        if(grafo->tipo == 'G'){
+            matriz[vj][vi] = peso ? peso : 1;
+        }
+    }
+
+    FILE* arquivo = fopen(nome_arquivo, "w");
+    if(!arquivo){
+        perror("Erro ao abrir arquivo para salvar a matriz adjacencias");
+        for(int i = 0; i < grafo->num_vertices; i++){
+            free(matriz[i]);
+        }
+        free(matriz);
+        return;
+    }
+
+    for(int i = 0; i< grafo->num_vertices; i++){
+        for(int j = 0; j< grafo-> num_vertices; j++){
+            fprintf(arquivo, "%.2f ", matriz[i][j]);
+        }
+        fprintf(arquivo,"\n");
+    }
+
+    fclose(arquivo);
+    printf("Matriz adjacencia salva com sucesso no arquivo: %s\n", nome_arquivo);
+
+    for(int i = 0; i < grafo->num_vertices; i++){
+        free(matriz[i]);
+    }
+    free(matriz);
+
 }
 
 void criarGrafoESalvar(const char* nome_arquivo){
@@ -132,10 +211,13 @@ int main() {
     printf("\nLendo o grafo do arquivo '%s'...\n", nome_arquivo);
     Grafo* grafo = lerGrafoDeArquivo(nome_arquivo);
 
+    gerarMatrizAdjacencias(grafo, "matriz_adjacencia.txt");
+
     // Passo 3: Exibir o grafo no terminal
     if (grafo) {
         printf("\nExibindo o grafo:\n");
         exibirGrafo(grafo);
+        mostraGrau(grafo);
 
         // Liberar a memória alocada para o grafo
         free(grafo->arestas);
