@@ -198,14 +198,109 @@ void exibirGrafo(Grafo* grafo) {
     }
 }
 
+// e) Encontrar uma árvore geradora mínima: Implementar um algoritmo para encontrar a árvore geradora mínima.
 
+// aqui ele vai retornar (1 quando a>b), (0 quando a=b) e (-1 quando a<b)
+// que é o que precisamos para fazer o qsort funcionar.
+int compararArestas(const void* a, const void* b){
+    Aresta* arestaA = (Aresta*)a;
+    Aresta* arestaB = (Aresta*)b;
+
+    return(arestaA->peso > arestaB->peso) - (arestaA->peso > arestaB->peso);
+}
+
+// agora para definir os subconjuntos utilizados pelo algoritmo de kruskal deveremos
+// utilizar uma definição de pai do subconjunto, sendo assim todo subconjunto possui
+// um pai que deve ser buscado toda vez que preciso checar se dois vertices estão no
+// mesmo subconjunto, por isso do struct rank e pai.
+
+int encontrar(Subconjunto subconjuntos[], int i){
+    if(subconjuntos[i].pai != i){
+        subconjuntos[i].pai = encontrar(subconjuntos, subconjuntos[i].pai);
+    }
+    return subconjuntos[i].pai;
+}
+
+void unir(Subconjunto subconjuntos[], int p1_sub, int p2_sub){
+    // isso aqui é só para garantir que estamos trabalhando com os pais de fato
+    int raizX = encontrar(subconjuntos,p1_sub);
+    int raizY = encontrar(subconjuntos,p2_sub);
+
+    // agora preciso garantir que o com maior rank seja o pai dentre eles.
+    if(subconjuntos[raizX].rank > subconjuntos[raizY].rank){
+        subconjuntos[raizY].pai = raizX;
+    }
+    else if(subconjuntos[raizX].rank < subconjuntos[raizY].rank){
+        subconjuntos[raizX].pai = raizY;
+    }
+
+    // e se forem iguais escolho x arbitrariamente para ser o pai de y e aumento seu rank.
+    else{
+        subconjuntos[raizY].pai = raizX;
+        subconjuntos[raizX].rank++;
+    }
+}
+
+// Eis aqui o metodo principal de kruskal vou explicar a logica dele abaixo.
+void encontrarArvoreGeradoraMinima(Grafo* grafo){
+    // checagem para impedir que grafos dirigidos entrem no sistema.
+    if(grafo->tipo != 'G'){
+        printf("o grafo não pode ser dirigido!");
+        return;
+    }
+
+    // como kruskal vai analisando cada aresta e sempre pega as menores, fica mais facil se orde-
+    // narmos essa lista de arestas (que ja vem com o grafo)
+    qsort(grafo->arestas, grafo->num_arestas, sizeof(Aresta), compararArestas);
+
+    // criamos um array de subconjuntos para utilizar na logica de kruskal onde só podemos unir
+    // arestas de subconjuntos diferentes.
+    Subconjunto *subconjuntos = (Subconjunto*)malloc(grafo->num_vertices * sizeof(Subconjunto));
+
+    // setamos todo mundo (vertices) como um subconjunto proprio com pai sendo ele mesmo e tendo
+    // rank 0.
+    for(int v = 0; v < grafo->num_vertices; v++){
+        subconjuntos[v].pai = v;
+        subconjuntos[v].rank = 0;
+    }
+
+    float pesoTotal = 0;
+    int arestasIncluidas = 0;
+
+    // vamos percorrer todas as arestas do nosso grafo checando se ela ja pertence a arvore e
+    // alocando ela para um subconjunto se possivel.
+
+    // cabe dizer aqui também que o numero de arestas incluidas não pode ser maior que V - 1
+    // pela definição de arvore, por isso entra aqui no for.
+    for(int i = 0; i < grafo->num_arestas && arestasIncluidas < grafo->num_vertices -1; i++){
+
+         Aresta proximaAresta = grafo->arestas[i];
+
+         // encontramos o pai de cada vertice da aresta atual que esta sendo checada
+         int x = encontrar(subconjuntos, proximaAresta.vi - 1);
+         int y = encontrar(subconjuntos, proximaAresta.vj - 1);
+
+         // se for o mesmo pai, então pertencem ao mesmo conjunto, então a aresta não pode ser
+         // unida
+
+         // agora se forem de pais diferentes, logo são de subcnojuntos diferentes, e podemos,
+         // uni-la dessa vez.
+         if(x!=y){
+            printf("%d -- %d (Peso: %.2f)\n", proximaAresta.vi, proximaAresta.vj, proximaAresta.peso);
+            pesoTotal+=proximaAresta.peso;
+            unir(subconjuntos,x,y);
+            arestasIncluidas++;
+         }
+    }
+
+}
 
 int main() {
     const char* nome_arquivo = "grafo.txt"; // Nome do arquivo para salvar e ler o grafo
 
     // Passo 1: Criar um grafo e salvá-lo no arquivo
     printf("Criando um grafo...\n");
-    criarGrafoESalvar(nome_arquivo);
+    //criarGrafoESalvar(nome_arquivo);
 
     // Passo 2: Ler o grafo do arquivo
     printf("\nLendo o grafo do arquivo '%s'...\n", nome_arquivo);
@@ -218,11 +313,13 @@ int main() {
         printf("\nExibindo o grafo:\n");
         exibirGrafo(grafo);
         mostraGrau(grafo);
+        encontrarArvoreGeradoraMinima(grafo);
 
         // Liberar a memória alocada para o grafo
         free(grafo->arestas);
         free(grafo);
-    } else {
+    } 
+    else {
         printf("Erro ao ler o grafo do arquivo.\n");
     }
 
