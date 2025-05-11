@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <float.h>
+#define MAX 100
 
 typedef struct{
     int vi,vj;
@@ -295,6 +297,97 @@ void encontrarArvoreGeradoraMinima(Grafo* grafo){
 
 }
 
+
+//f) Cálculo de caminho mais curto:
+//Implementar o algoritmo de Dijkstra para encontrar o caminho mais curto.
+
+
+void dijkstra(Grafo* grafo, int origem){
+    if(!grafo){
+        printf("o grafo é invalido!");
+        return;
+    }
+    if(grafo->tipo != 'D' && grafo->tipo != 'G'){
+        printf("tipo de grafo invalido!");
+        return;
+    }
+
+    int V = grafo->num_vertices;
+    float dist[MAX];
+    int visitado[MAX];
+
+    // aqui definimos as distancias todas como um numero bem grande
+    // e todos visitados como 0 que significa falso;
+    for(int i = 0; i < V; i++){
+        dist[i] = FLT_MAX;
+        visitado[i] = 0;
+    }
+    // aqui definimos a distancia da origem pra ela mesmo como 0
+    dist[origem - 1] = 0;
+
+    for(int contador = 0; contador < V - 1; contador++){
+        int u = -1;
+        float menorDist = FLT_MAX;
+
+        // aqui definimos u como  vertice que possui 
+        // a menor distancia da origem e ainda não foi visitado
+        for(int v = 0; v < V; v++){
+            if(visitado[v] == 0 && dist[v] < menorDist){
+                menorDist = dist[v];
+                u = v;
+            }
+        }
+
+        visitado[u] = 1;
+
+        for(int i = 0; i < grafo ->num_arestas; i++){
+            int vi = grafo->arestas[i].vi - 1;
+            int vj = grafo->arestas[i].vj - 1;
+            float peso = grafo->arestas[i].peso;
+            if(peso < 0){
+                printf("Arestas não podem possuir peso menor que 0");
+                return;
+            }
+
+            // agora precisamos considerar os dois tipos de grafos que estamos abrangendo nesse programa
+            if(grafo->tipo== 'G'){
+                //Para grafos não dirigidos devemos considerar ambos os sentidos.
+                if((vi == u || vj == u)){
+                    int adj = (vi == u) ? vj : vi;
+
+                    // checamos aqui se o vertice adjacente possui distancia maior do que a distancia atual + peso
+                    // se tiver nós trocamos essa distancia.
+                    if(visitado[adj] == 0 && dist[u] + peso < dist[adj]){
+                        dist[adj] = dist[u] + peso;
+                    }
+
+
+                }
+            }else{
+
+                // aqui o grafo dirigido
+                // como so tem um caminho, não existe duvida qual é o atual e qual é o adj
+                // então é só fazer a mesma verificação que o ultimo
+                if(vi == u && peso > 0){
+                    if(visitado[vj] == 0 && dist[u] + peso < dist[vj]){
+                        dist[vj] = dist[u] + peso;
+                    }
+                }
+            }
+        }
+    }
+
+    // Exibir as distâncias calculadas
+    printf("Distâncias do vértice %d:\n", origem);
+    for (int i = 0; i < V; i++) {
+        if (dist[i] == FLT_MAX) {
+            printf("Vértice %d: Infinito\n", i + 1);
+        } else {
+            printf("Vértice %d: %.2f\n", i + 1, dist[i]);
+        }
+    }
+}
+
 int main() {
     const char* nome_arquivo = "grafo.txt"; // Nome do arquivo para salvar e ler o grafo
 
@@ -314,6 +407,7 @@ int main() {
         exibirGrafo(grafo);
         mostraGrau(grafo);
         encontrarArvoreGeradoraMinima(grafo);
+        dijkstra(grafo, 1);
 
         // Liberar a memória alocada para o grafo
         free(grafo->arestas);
