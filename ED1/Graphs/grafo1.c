@@ -388,6 +388,58 @@ void dijkstra(Grafo* grafo, int origem){
     }
 }
 
+void buscaEmLargura(Grafo* grafo, int origem){
+    if(!grafo) {
+        printf("Grafo inválido!\n");
+        return;
+    }
+    int V = grafo->num_vertices;
+    int visitado[MAX];
+    int fila[MAX];
+
+    // inicio e fim aqui é basicamente para criarmos uma fila
+    // desse modo colocamos o vertice novo achado sempre no fim
+    // e removemos o antigo do inicio.
+    int inicio = 0, fim = 0;
+
+    for (int i = 0; i < V; i++) visitado[i] = 0;
+
+    // Ajuste para índices baseados em 1
+    origem = origem - 1;
+    fila[fim++] = origem;
+    visitado[origem] = 1;
+
+    printf("BFS a partir do vértice %d:\n", origem + 1);
+
+    while(inicio < fim){
+        int u = fila[inicio++];
+        printf("%d ", u+1);
+
+        for(int i = 0; i < grafo->num_arestas; i++){
+            int vi = grafo->arestas[i].vi - 1;
+            int vj = grafo->arestas[i].vj - 1;
+            if(grafo->tipo == 'G'){
+                if(vi == u && !visitado[vj]){
+                    fila[fim++] = vj;
+                    visitado[vj] = 1;
+                }
+                else if(vj == u && !visitado[vi]){
+                    fila[fim++] = vi;
+                    visitado[vi] = 1;
+                }
+            }
+            else if(grafo->tipo == 'D'){
+                if(vi == u && !visitado[vj]){
+                    fila[fim++] = vj;
+                    visitado[vj] = 1;
+                }
+            }
+        }
+    }
+
+    printf("\n");
+}
+
 int main() {
     const char* nome_arquivo = "grafo.txt"; // Nome do arquivo para salvar e ler o grafo
 
@@ -408,6 +460,7 @@ int main() {
         mostraGrau(grafo);
         encontrarArvoreGeradoraMinima(grafo);
         dijkstra(grafo, 1);
+        buscaEmLargura(grafo, 1);
 
         // Liberar a memória alocada para o grafo
         free(grafo->arestas);
