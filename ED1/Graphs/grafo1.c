@@ -204,11 +204,12 @@ void exibirGrafo(Grafo* grafo) {
 
 // aqui ele vai retornar (1 quando a>b), (0 quando a=b) e (-1 quando a<b)
 // que é o que precisamos para fazer o qsort funcionar.
-int compararArestas(const void* a, const void* b){
+int compararArestas(const void* a, const void* b) {
     Aresta* arestaA = (Aresta*)a;
     Aresta* arestaB = (Aresta*)b;
 
-    return(arestaA->peso > arestaB->peso) - (arestaA->peso > arestaB->peso);
+    // Returns -1 if A < B, 0 if A == B, 1 if A > B
+    return (arestaA->peso > arestaB->peso) - (arestaA->peso < arestaB->peso);
 }
 
 // agora para definir os subconjuntos utilizados pelo algoritmo de kruskal deveremos
@@ -440,6 +441,47 @@ void buscaEmLargura(Grafo* grafo, int origem){
     printf("\n");
 }
 
+void buscaEmProfundidadeRec(Grafo* grafo, int u, int visitado[]) {
+    visitado[u] = 1;
+    printf("%d ", u + 1);
+
+    for (int i = 0; i < grafo->num_arestas; i++) {
+        int vi = grafo->arestas[i].vi - 1;
+        int vj = grafo->arestas[i].vj - 1;
+
+        if (grafo->tipo == 'G') {
+            // Grafo não dirigido: verifica ambos os sentidos
+            if (vi == u && !visitado[vj]) {
+                buscaEmProfundidadeRec(grafo, vj, visitado);
+            } else if (vj == u && !visitado[vi]) {
+                buscaEmProfundidadeRec(grafo, vi, visitado);
+            }
+        } else if (grafo->tipo == 'D') {
+            // Grafo dirigido: apenas vi -> vj
+            if (vi == u && !visitado[vj]) {
+                buscaEmProfundidadeRec(grafo, vj, visitado);
+            }
+        }
+    }
+}
+
+void buscaEmProfundidade(Grafo* grafo, int origem) {
+    if (!grafo) {
+        printf("Grafo inválido!\n");
+        return;
+    }
+    int V = grafo->num_vertices;
+    int visitado[MAX];
+    for (int i = 0; i < V; i++) visitado[i] = 0;
+
+    // Ajuste para índices baseados em 1
+    origem = origem - 1;
+
+    printf("DFS a partir do vértice %d:\n", origem + 1);
+    buscaEmProfundidadeRec(grafo, origem, visitado);
+    printf("\n");
+}
+
 int main() {
     const char* nome_arquivo = "grafo.txt"; // Nome do arquivo para salvar e ler o grafo
 
@@ -457,10 +499,17 @@ int main() {
     if (grafo) {
         printf("\nExibindo o grafo:\n");
         exibirGrafo(grafo);
+        printf("\n-----------------------------\n");
         mostraGrau(grafo);
+        printf("\n-----------------------------\n");
+        printf("\nExibindo o árvore mínima:\n");
         encontrarArvoreGeradoraMinima(grafo);
+        printf("\n-----------------------------\n");
         dijkstra(grafo, 1);
+        printf("\n-----------------------------\n");
         buscaEmLargura(grafo, 1);
+        printf("\n-----------------------------\n");
+        buscaEmProfundidade(grafo, 1);
 
         // Liberar a memória alocada para o grafo
         free(grafo->arestas);
