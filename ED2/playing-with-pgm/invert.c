@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void threshold_pgm(const char *input, const char *output, int threshold){
+void invert_pgm(const char *input, const char *output){
   FILE *fin = fopen(input, "r");
   FILE *fout = fopen (output, "w");
 
@@ -10,12 +10,12 @@ void threshold_pgm(const char *input, const char *output, int threshold){
     return;
   }
 
-  char magic[3];
+  char config[3];
   int width, height, maxval;
 
-  fscanf(fin, "%2s", magic);
+  fscanf(fin, "%2s", config);
 
-  if(magic[0] != 'P' || magic[1] != '2'){
+  if(config[0] != 'P' || config[1] != '2'){
     printf("Only P2 (ASCII) PGM supported. \n");
 
     fclose(fin);
@@ -52,7 +52,7 @@ void threshold_pgm(const char *input, const char *output, int threshold){
 }
 
 int main() {
-    threshold_pgm("barbara.pgm", "output.pgm", 100);
+    invert_pgm("barbara.pgm", "output.pgm", 100);
     printf("Done!\n");
     return 0;
 }

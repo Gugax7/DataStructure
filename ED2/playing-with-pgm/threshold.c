@@ -10,26 +10,19 @@ void threshold_pgm(const char *input, const char *output, int threshold){
     return;
   }
 
-  char magic[3];
+  char config[3];
   int width, height, maxval;
 
-  fscanf(fin, "%2s", magic);
+  fscanf(fin, "%2s", config);
 
-  if(magic[0] != 'P' || magic[1] != '2'){
+  if(config[0] != 'P' || config[1] != '2'){
     printf("Only P2 (ASCII) PGM supported. \n");
 
     fclose(fin);
     fclose(fout);
   }
 
-  // skip comments, probably when we send we might delete it, i dont know how useful it is actually.
-
-  int c;
-  while((c = fgetc(fin)) == '#'){
-    while(fgetc(fin) != '\n');
-  }
-
-  ungetc(c, fin);
+  // skip comments
 
   fscanf(fin, "%d %d", &width, &height);
   fscanf(fin, "%d", &maxval);
@@ -45,17 +38,16 @@ void threshold_pgm(const char *input, const char *output, int threshold){
     else pixel = 0;
 
     fprintf(fout, "%d ", pixel);
-
   }
 
-  
-    fclose(fin);
-    fclose(fout);
+  fclose(fin);
+  fclose(fout);
 
 }
 
 int main() {
-    threshold_pgm("barbara.pgm", "output.pgm", 100);
+    int threshold = 100;
+    threshold_pgm("barbara.pgm", "output.pgm", threshold);
     printf("Done!\n");
     return 0;
 }
