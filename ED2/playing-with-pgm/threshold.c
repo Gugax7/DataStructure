@@ -1,3 +1,10 @@
+// Grupo: 
+// Gustavo Salmazo da Silva
+// Yan Lucas Dias
+// Pedro Machado Rossi
+// Alan Vinicius de Souza
+// Ricardo Tadei Romero
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -21,8 +28,6 @@ void threshold_pgm(const char *input, const char *output, int threshold){
     fclose(fin);
     fclose(fout);
   }
-
-  // skip comments
 
   fscanf(fin, "%d %d", &width, &height);
   fscanf(fin, "%d", &maxval);
