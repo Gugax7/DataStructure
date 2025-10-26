@@ -9,6 +9,12 @@ typedef struct{
   char config[3];
 }PgmImage;
 
+typedef struct{
+  char *fileName[256];
+  long offset;
+  long size;
+}Index;
+
 void convertImageToStruct(FILE *pgm, PgmImage *object){
   
   // type
@@ -47,24 +53,40 @@ void convertImageToStruct(FILE *pgm, PgmImage *object){
   }
 }
 
-int importImage(char * pgmFile, char * databaseFile){
+int importImage(char * pgmFile, char * databaseFile, char* indexFile){
 
   FILE* pgmStream;
   FILE* databaseStream;
+  FILE* indexStream;
 
   pgmStream = fopen(pgmFile, "r");
-  databaseStream = fopen(databaseFile, "wb");
+  databaseStream = fopen(databaseFile, "ab+");
 
   if(!pgmStream || !databaseStream) return 500;
 
   PgmImage imageObject;
   convertImageToStruct(pgmStream, &imageObject);
 
+  fseek(databaseStream, 0, SEEK_END);
+
+  long currentOffSet = ftell(databaseStream);
+
   fwrite(imageObject.config, sizeof(char), 3, databaseStream);
   fwrite(&imageObject.width, sizeof(int), 1, databaseStream);
   fwrite(&imageObject.height, sizeof(int), 1, databaseStream);
   fwrite(&imageObject.grayMax, sizeof(int), 1, databaseStream);
   fwrite(imageObject.values, sizeof(int), imageObject.height * imageObject.width, databaseStream);
+
+  indexStream = fopen(indexFile, "a");
+
+  fseek(databaseStream, 0, SEEK_END);
+
+  const size = ftell(databaseStream) - currentOffSet;
+
+  fprintf(indexFile, "%s %ld %ld",
+    pgmFile,
+    currentOffSet,
+    size);
 
   fclose(pgmStream);
   fclose(databaseStream);
@@ -76,7 +98,7 @@ int importImage(char * pgmFile, char * databaseFile){
 
 int main(){
   
-  importImage("barbara.pgm", "output.bin");
+  importImage("barbara.pgm", "output.bin", "index.txt");
 
   return 0;
 }
