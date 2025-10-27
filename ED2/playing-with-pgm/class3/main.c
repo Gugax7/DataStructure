@@ -83,22 +83,31 @@ int importImage(char * pgmFile){
 
   long currentOffSet = ftell(databaseStream);
 
+  // write to database
+
   fwrite(imageObject.config, sizeof(char), 3, databaseStream);
   fwrite(&imageObject.width, sizeof(int), 1, databaseStream);
   fwrite(&imageObject.height, sizeof(int), 1, databaseStream);
   fwrite(&imageObject.grayMax, sizeof(int), 1, databaseStream);
   fwrite(imageObject.values, sizeof(int), imageObject.height * imageObject.width, databaseStream);
 
-  indexStream = fopen(INDEX_FILE, "a");
+  indexStream = fopen(INDEX_FILE, "ab+");
+
+  // take size
 
   fseek(databaseStream, 0, SEEK_END);
 
   long size = ftell(databaseStream) - currentOffSet;
 
-  fprintf(indexStream, "%s %ld %ld\n",
-    pgmFile,
-    currentOffSet,
-    size);
+  // write to indexFile
+
+  Index indexItem;
+  memset(&indexItem, 0, sizeof(Index));
+  strncpy(indexItem.fileName, pgmFile, sizeof(indexItem.fileName) - 1);
+  indexItem.offset = currentOffSet;
+  indexItem.size = size;
+
+  fwrite(&indexItem, sizeof(Index), 1, indexStream);
 
   fclose(pgmStream);
   fclose(databaseStream);
@@ -109,23 +118,46 @@ int importImage(char * pgmFile){
   return 0;
 }
 
+void printIndexFile(){
+  FILE* indexStream = fopen(INDEX_FILE, "rb");
+
+  Index indexItem;
+
+  while(fread(&indexItem, sizeof(Index), 1, indexStream) == 1){
+    printf("Index item:\n\tpgmName: %s\n\toffset: %ld\n\tsize: %ld\n", indexItem.fileName, indexItem.offset, indexItem.size);
+  }
+}
+
 int exportImage(char * imageName, char *outputName){
   FILE* outputStream = fopen(outputName, "w");
-  FILE* indexStream = fopen(INDEX_FILE, "r");
-
-  char inFileName[256];
-  long offset;
-  long size;
-  int position = 0;
+  FILE* indexStream = fopen(INDEX_FILE, "rb");
 
 
-  // Find the index with this outputName;
-  do{
-    position++;
-    if(fscanf(indexStream, "%s %ld %ld",inFileName, &offset, &size) != 3){
-      return 1;
-    };
-  }while(strcmp(inFileName, imageName) != 0);
+  // Find the index with this outputName (in text);
+  // do{
+  //   position++;
+  //   if(fscanf(indexStream, "%s %ld %ld",inFileName, &offset, &size) != 3){
+  //     return 1;
+  //   };
+  // }while(strcmp(inFileName, imageName) != 0);
+
+
+  Index indexItem;
+  memset(&indexItem, 0, sizeof(Index));
+
+  int found = 0;
+
+  while(fread(&indexItem, sizeof(Index), 1, indexStream) == 1){
+    if(strcmp(indexItem.fileName, imageName) == 0){
+      found = 1;
+      break;
+    }
+  }
+
+  if(!found){
+    printf("file not found\n");
+    return 1;
+  }
 
   //printf("on position %d: found!, %s %ld %ld", position, inFileName, offset, size);
 
@@ -135,7 +167,7 @@ int exportImage(char * imageName, char *outputName){
 
   PgmImage outputObject;
 
-  fseek(databaseStream, offset, SEEK_SET);
+  fseek(databaseStream, indexItem.offset, SEEK_SET);
 
   fread(outputObject.config, sizeof(char), 3, databaseStream);
   fread(&outputObject.width, sizeof(int), 1, databaseStream);
@@ -157,6 +189,7 @@ int exportImage(char * imageName, char *outputName){
   for(int i = 0; i < outputObject.width * outputObject.height; i++){
     fprintf(outputStream, "%d ", outputObject.values[i]);
   }
+  free(outputObject.values);
   fclose(outputStream);
   fclose(indexStream);
   fclose(databaseStream);
@@ -166,11 +199,15 @@ int exportImage(char * imageName, char *outputName){
 
 int main(){
   
-  // importImage("barbara.pgm");
-  // importImage("seila.pgm");
-  // importImage("limiar.pgm");
+   importImage("barbara.pgm");
+   importImage("seila.pgm");
+   importImage("limiar.pgm");
 
-  exportImage("seila.pgm","dk.pgm");
+  //exportImage("seila.pgm","dk.pgm");
+
+   printIndexFile();
+
+   exportImage("seila.pgm", "dk.pgm");
 
   return 0;
 }
