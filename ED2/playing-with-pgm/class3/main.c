@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define INDEX_FILE "index.txt"
+#define INDEX_FILE "index.bin"
 #define DATABASE_FILE "database.bin"
 
 typedef struct{
@@ -109,6 +109,8 @@ int importImage(char * pgmFile){
 
   fwrite(&indexItem, sizeof(Index), 1, indexStream);
 
+  // close and free everyone
+
   fclose(pgmStream);
   fclose(databaseStream);
   fclose(indexStream);
@@ -128,7 +130,30 @@ void printIndexFile(){
   }
 }
 
-int exportImage(char * imageName, char *outputName){
+void thresholdImage(PgmImage image, int threshold){
+  if(image.values == NULL){
+    printf("Error accessing image values\n");
+    return;
+  }
+
+  for(int i = 0; i < image.width * image.height; i++){
+    if(image.values[i] > threshold) image.values[i] = image.grayMax;
+    else image.values[i] = 0;
+  }
+}
+
+void reverseImage(PgmImage image){
+  if(image.values == NULL){
+    printf("Error accessing image values\n");
+    return;
+  }
+
+  for(int i = 0; i < image.width * image.height; i++){
+    image.values[i] = image.grayMax - image.values[i];
+  }
+}
+
+int exportImage(char * imageName, char *outputName, int exportMode, int threshold){
   FILE* outputStream = fopen(outputName, "w");
   FILE* indexStream = fopen(INDEX_FILE, "rb");
 
@@ -182,6 +207,30 @@ int exportImage(char * imageName, char *outputName){
 
   fread(outputObject.values, sizeof(int), outputObject.width * outputObject.height, databaseStream);
 
+  // right here i already have the output object, i just need to configure it to the current exporting mode
+
+  switch (exportMode)
+  {
+  case 1:
+    printf("threshold mode chosen: exporting image %s, with a threshold of %d\n", imageName, threshold);
+    
+    thresholdImage(outputObject, threshold);
+
+    break;
+  
+  case 2:
+    printf("reverse mode chosen: exporting image %s, with reversed pixels\n", imageName);
+
+    reverseImage(outputObject);
+
+    break;
+  default:
+    
+    printf("default method chosen: exporting image %s as it was\n", imageName);
+
+    break;
+  }
+
   fprintf(outputStream, "%s\n", outputObject.config);
   fprintf(outputStream, "%d %d\n", outputObject.width, outputObject.height);
   fprintf(outputStream, "%d\n", outputObject.grayMax);
@@ -189,6 +238,8 @@ int exportImage(char * imageName, char *outputName){
   for(int i = 0; i < outputObject.width * outputObject.height; i++){
     fprintf(outputStream, "%d ", outputObject.values[i]);
   }
+
+  
   free(outputObject.values);
   fclose(outputStream);
   fclose(indexStream);
@@ -197,17 +248,63 @@ int exportImage(char * imageName, char *outputName){
   return 0;
 }
 
-int main(){
+void printExplanationForSomeoneWhoDontKnowTheCode(char *programName){
+  printf("commands allowed:\n");
+  printf("\t-%s import <file_name.pgm>\n", programName);
+  printf("\t-%s export <file_name.pgm>\n", programName);
+  printf("\t-%s export <file_name.pgm> reverse\n", programName);
+  printf("\t-%s export <file_name.pgm> <threshold>\n", programName);
+  printf("\t-%s list\n", programName);
+}
+
+int main(int argc, char *argv[]){
+
+  if(argc < 2){
+    printExplanationForSomeoneWhoDontKnowTheCode("./program");
+  }
+
+  // ./main import <image.pgm>
+  if(strcmp(argv[1], "import") == 0){
+    importImage(argv[2]);
+    return 0;
+  }
+  else if(strcmp(argv[1], "export") == 0){
+    char outputName[200];
+    if(argc < 3){
+      printf("export command accepts:\n\t-%s export <file_name.pgm>\n\t-%s export <file_name.pgm> reverse\n\t-%s export <file_name.pgm> threshold\n", "./program", "./program", "./program");
+    }
+    // ./main export <image.pgm>
+    else if(argc < 4){
+      sprintf(outputName, "output_%s", argv[2]);
+      exportImage(argv[2], outputName, 0, 0);
+    }
+    // ./main export <image.pgm> reverse
+    else if(strcmp(argv[3], "reverse") == 0){
+      sprintf(outputName, "reverse_%s", argv[2]);
+      exportImage(argv[2], outputName, 2, 0);
+    }
+    else if(argc == 4){
+      int threshold = atoi(argv[3]);
+      sprintf(outputName, "threshold_%d_%s", threshold, argv[2]);
+      exportImage(argv[2], outputName, 1, threshold);
+    }
+    else{
+      printf("export command accepts:\n\t-%s export <file_name.pgm>\n\t-%s export <file_name.pgm> reverse\n\t-%s export <file_name.pgm> threshold\n", argv[0], argv[0], argv[0]);
+    }
+  }
+
+  else if(strcmp(argv[1], "list") == 0){
+    printIndexFile();
+  }
+  else{
+    
+  }
   
-   importImage("barbara.pgm");
-   importImage("seila.pgm");
-   importImage("limiar.pgm");
+  
+  // ./main export <image.pgm> <threshold>
+  
+  
 
-  //exportImage("seila.pgm","dk.pgm");
-
-   printIndexFile();
-
-   exportImage("seila.pgm", "dk.pgm");
 
   return 0;
 }
