@@ -248,6 +248,23 @@ int exportImage(char * imageName, char *outputName, int exportMode, int threshol
   return 0;
 }
 
+void mergeIndexes(char **indexParts, int numberOfFiles){
+  FILE ** files = (FILE**)malloc(sizeof(FILE*) * numberOfFiles);
+
+  if(files == NULL){
+    printf("Error allocating space for array of streams\n");
+    return;
+  }
+
+  for(int i = 0; i < numberOfFiles; i++){
+    files[i] = fopen(indexParts[i], "rb");
+  }
+
+  for(int i = 0; i < numberOfFiles; i++){
+    fclose(files[i]);
+  }
+}
+
 void printExplanationForSomeoneWhoDontKnowTheCode(char *programName){
   printf("commands allowed:\n");
   printf("\t-%s import <file_name.pgm>\n", programName);
