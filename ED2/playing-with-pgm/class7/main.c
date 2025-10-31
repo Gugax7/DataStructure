@@ -248,20 +248,34 @@ int exportImage(char * imageName, char *outputName, int exportMode, int threshol
   return 0;
 }
 
-void mergeIndexes(char **indexParts, int numberOfFiles){
-  FILE ** files = (FILE**)malloc(sizeof(FILE*) * numberOfFiles);
+void mergeIndexes(FILE* index1, FILE* index2, int count){
+  int one_finished = 0;
+  int two_finished = 0;
 
-  if(files == NULL){
-    printf("Error allocating space for array of streams\n");
-    return;
+  Index item1, item2;
+
+  fread(&item1, sizeof(Index), 1, index1);
+  fread(&item2, sizeof(Index), 1, index2);
+
+  char *fileName[256];
+
+  sprintf(fileName, "part_%d", count);
+
+  FILE* newFile = fopen(fileName, "wb");
+
+  if(strcmp(item1.fileName, item2.fileName) > 0){
+    fwrite(&item1, sizeof(Index), 1, newFile);
+    fread(&item1, sizeof(Index), 1, index1);
   }
-
-  for(int i = 0; i < numberOfFiles; i++){
-    files[i] = fopen(indexParts[i], "rb");
+  else if(strcmp(item1.fileName, item2.fileName) < 0){
+    fwrite(&item2, sizeof(Index), 1, newFile);
+    fread(&item2, sizeof(Index), 1, index2);
   }
-
-  for(int i = 0; i < numberOfFiles; i++){
-    fclose(files[i]);
+  else{
+    fwrite(&item2, sizeof(Index), 1, newFile);
+    fread(&item2, sizeof(Index), 1, index2);
+    fwrite(&item1, sizeof(Index), 1, newFile);
+    fread(&item1, sizeof(Index), 1, index1);
   }
 }
 
