@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <stdint.h>
+#include <direct.h>
 
 #define INDEX_FILE "index.bin"
 #define DATABASE_FILE "database.bin"
@@ -248,50 +251,173 @@ int exportImage(char * imageName, char *outputName, int exportMode, int threshol
   return 0;
 }
 
+int separateIndex(FILE* index){
+  Index item;
+  int x = 1;
+  char fileName[256];
+  char path[300];
+
+  while(fread(&item, sizeof(Index), 1, index) == 1){
+    sprintf(fileName, "part_%d.bin", x);
+    sprintf(path, "./index_parts/%s", fileName);
+
+    FILE *part_x = fopen(path, "wb");
+
+    fwrite(&item, sizeof(Index), 1, part_x);
+    x++;
+
+    fclose(part_x);
+  }
+
+  return x;
+}
+
 void mergeIndexes(FILE* index1, FILE* index2, int count){
   int one_finished = 0;
   int two_finished = 0;
 
   Index item1, item2;
 
-  fread(&item1, sizeof(Index), 1, index1);
-  fread(&item2, sizeof(Index), 1, index2);
+  if(fread(&item1, sizeof(Index), 1, index1) != 1) one_finished = 1;
+  if(fread(&item2, sizeof(Index), 1, index2) != 1) two_finished = 1;
 
-  char *fileName[256];
+  char fileName[256];
 
-  sprintf(fileName, "part_%d", count);
+  sprintf(fileName, "./index_parts/part_%d.bin", count);
 
   FILE* newFile = fopen(fileName, "wb");
 
-  if(strcmp(item1.fileName, item2.fileName) > 0){
+  // copy until someone get empty
+
+  while(!one_finished && !two_finished){
+    if(strcmp(item1.fileName, item2.fileName) <= 0){
+      fwrite(&item1, sizeof(Index), 1, newFile);
+
+      if(fread(&item1, sizeof(Index), 1, index1) != 1){
+        one_finished = 1;
+      }
+    }else{
+      fwrite(&item2, sizeof(Index), 1, newFile);
+
+      if(fread(&item2, sizeof(Index), 1, index2) != 1){
+        two_finished = 1;
+      }
+    }
+  }
+
+  // when one of them is empty, copy the other one entirely
+
+  while(!one_finished){
     fwrite(&item1, sizeof(Index), 1, newFile);
-    fread(&item1, sizeof(Index), 1, index1);
+
+    if(fread(&item1, sizeof(Index), 1, index1) != 1){
+      one_finished = 1;
+    }
   }
-  else if(strcmp(item1.fileName, item2.fileName) < 0){
+
+  while(!two_finished){
     fwrite(&item2, sizeof(Index), 1, newFile);
-    fread(&item2, sizeof(Index), 1, index2);
+
+      if(fread(&item2, sizeof(Index), 1, index2) != 1){
+        two_finished = 1;
+      }
   }
-  else{
-    fwrite(&item2, sizeof(Index), 1, newFile);
-    fread(&item2, sizeof(Index), 1, index2);
-    fwrite(&item1, sizeof(Index), 1, newFile);
-    fread(&item1, sizeof(Index), 1, index1);
-  }
+
+  fclose(newFile);
 }
 
-void printExplanationForSomeoneWhoDontKnowTheCode(char *programName){
+void sortIndex(FILE* index){
+  int initialPartsCount = separateIndex(index);
+  int totalParts = initialPartsCount;
+  int currentPart = 1;
+  char path[256];
+
+  while(currentPart + 1 < totalParts){
+    sprintf(path, "./index_parts/part_%d.bin", currentPart);
+    
+    FILE *file1 = fopen(path, "rb");
+    if(file1 == NULL){
+      printf("Error opening file: %s", path);
+      fclose(file1);  
+      return;
+    }
+
+    currentPart++;
+    
+    sprintf(path, "./index_parts/part_%d.bin", currentPart);
+
+    FILE *file2 = fopen(path, "rb");
+
+    if(file2 == NULL){
+      printf("Error opening file: %s", path);
+      fclose(file1);
+      fclose(file2);
+      return;
+    }
+
+    currentPart++;
+
+    mergeIndexes(file1, file2, totalParts++);
+
+    fclose(file1);
+    fclose(file2);
+  }
+
+  printf("total leaving loop: %d\n", totalParts);
+
+  // take current index file and throw it into backup folder.
+  
+  time_t now = time(NULL);
+
+  char backupName[256];
+  char sortedFile[256];
+
+  sprintf(backupName, "index_backup/index_%ld.bin", now);
+  sprintf(sortedFile, "index_parts/part_%d.bin", (totalParts - 1));
+
+  fclose(index);
+
+  // rename last file to new index and saving old one as backup
+
+  if(rename("index.bin", backupName) != 0){
+    perror("rename failed");
+    return;
+  }
+  if(rename(sortedFile, "index.bin") != 0){
+    perror("rename failed");
+    return;
+  }
+
+  for(int i = 1; i < totalParts - 1; i++){
+    char fileToRemove[256];
+    sprintf(fileToRemove, "index_parts/part_%d.bin", i);
+    if(remove(fileToRemove) != 0){
+      perror("failed to remove file part index");
+      return;
+    }
+  }
+
+  // if(_rmdir("index_parts") != 0){
+  //   perror("failed to remove parts folder");
+  //   return;
+  // }
+  
+}
+
+void printExplanation(char *programName){
   printf("commands allowed:\n");
   printf("\t-%s import <file_name.pgm>\n", programName);
   printf("\t-%s export <file_name.pgm>\n", programName);
   printf("\t-%s export <file_name.pgm> reverse\n", programName);
   printf("\t-%s export <file_name.pgm> <threshold>\n", programName);
+  printf("\t-%s sort-index\n", programName);
   printf("\t-%s list\n", programName);
 }
 
 int main(int argc, char *argv[]){
 
   if(argc < 2){
-    printExplanationForSomeoneWhoDontKnowTheCode("./program");
+    printExplanation("./program");
   }
 
   // ./main import <image.pgm>
@@ -327,8 +453,12 @@ int main(int argc, char *argv[]){
   else if(strcmp(argv[1], "list") == 0){
     printIndexFile();
   }
+  else if(strcmp(argv[1], "sort-index") == 0){
+    FILE* index = fopen(INDEX_FILE, "rb");
+    sortIndex(index);
+  }
   else{
-    printExplanationForSomeoneWhoDontKnowTheCode("./program");
+    printExplanation("./program");
   }
 
   return 0;
