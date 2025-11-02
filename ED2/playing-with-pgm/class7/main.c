@@ -29,7 +29,10 @@ void convertImageToStruct(FILE *pgm, PgmImage *object){
   int maxGray;
   
 
-  fscanf(pgm,"%s", config);
+  if (fscanf(pgm, "%s", config) != 1) {
+    printf("Invalid PGM header\n");
+    return;
+  }
 
   if(config[0] != 'P' || config[1] != '2'){
     printf("Only P2 formats accepted in the moment\n");
@@ -77,7 +80,7 @@ int importImage(char * pgmFile){
   pgmStream = fopen(pgmFile, "r");
   databaseStream = fopen(DATABASE_FILE, "ab+");
 
-  if(!pgmStream || !databaseStream) return 500;
+  if(!pgmStream || !databaseStream) return -1;
 
   PgmImage imageObject;
   convertImageToStruct(pgmStream, &imageObject);
@@ -156,11 +159,22 @@ void reverseImage(PgmImage image){
   }
 }
 
+
 int exportImage(char * imageName, char *outputName, int exportMode, int threshold){
   FILE* outputStream = fopen(outputName, "w");
   FILE* indexStream = fopen(INDEX_FILE, "rb");
 
+  if (!outputStream) {
+    perror("Failed to open output file");
+    return 1;
+  }
+  if (!indexStream) {
+      perror("Failed to open index file");
+      fclose(outputStream);
+      return 1;
+  }
 
+  // first version the index was in txt, so for study i decided to keep it.
   // Find the index with this outputName (in text);
   // do{
   //   position++;
@@ -251,6 +265,8 @@ int exportImage(char * imageName, char *outputName, int exportMode, int threshol
   return 0;
 }
 
+// my idea here is simple, first i start dividing all items in their own files, to guarantee that
+// with only one, it will be sorted, so i can do the kway merge
 int separateIndex(FILE* index){
   Index item;
   int x = 1;
@@ -272,6 +288,7 @@ int separateIndex(FILE* index){
   return x;
 }
 
+// function to merge indexes two by two, as the mister asked
 void mergeIndexes(FILE* index1, FILE* index2, int count){
   int one_finished = 0;
   int two_finished = 0;
@@ -379,12 +396,13 @@ void sortIndex(FILE* index){
 
   // rename last file to new index and saving old one as backup
 
-  if(rename("index.bin", backupName) != 0){
+  if(rename(INDEX_FILE, backupName) != 0){
     perror("rename failed");
     return;
   }
-  if(rename(sortedFile, "index.bin") != 0){
+  if(rename(sortedFile, INDEX_FILE) != 0){
     perror("rename failed");
+    rename(backupName, INDEX_FILE);
     return;
   }
 
@@ -396,6 +414,9 @@ void sortIndex(FILE* index){
       return;
     }
   }
+
+  // just an idea: what if i remove the index_parts folder every time?
+  // i think that it just dont worth the risk haha
 
   // if(_rmdir("index_parts") != 0){
   //   perror("failed to remove parts folder");
@@ -415,6 +436,9 @@ void printExplanation(char *programName){
 }
 
 int main(int argc, char *argv[]){
+
+  _mkdir("index_parts");
+  _mkdir("index_backup");
 
   if(argc < 2){
     printExplanation("./program");
@@ -440,6 +464,7 @@ int main(int argc, char *argv[]){
       sprintf(outputName, "reverse_%s", argv[2]);
       exportImage(argv[2], outputName, 2, 0);
     }
+    // ./main export <image.pgm> <threshold>
     else if(argc == 4){
       int threshold = atoi(argv[3]);
       sprintf(outputName, "threshold_%d_%s", threshold, argv[2]);
@@ -449,10 +474,11 @@ int main(int argc, char *argv[]){
       printf("export command accepts:\n\t-%s export <file_name.pgm>\n\t-%s export <file_name.pgm> reverse\n\t-%s export <file_name.pgm> threshold\n", argv[0], argv[0], argv[0]);
     }
   }
-
+  // ./main list
   else if(strcmp(argv[1], "list") == 0){
     printIndexFile();
   }
+  // ./main sort-index
   else if(strcmp(argv[1], "sort-index") == 0){
     FILE* index = fopen(INDEX_FILE, "rb");
     sortIndex(index);
