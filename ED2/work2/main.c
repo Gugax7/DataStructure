@@ -3,10 +3,10 @@ ALUNO: GUSTAVO SALMAZO DA SILVA
 
 # Algumas considerações sobre a utilização do programa:
 
-- para compilar gcc main.c -o main
+- para compilar gcc main.c btree.c -o main
 - ao executar, ele mostrará as opções de comando possiveis do programa
 - nele é possivel: inserir, exportar, listar, e remover imagens limiarizadas
-- o programa também permite compactação (hard remove) de banco de dados e recuperação de imagens a partir da média das imagens limiarizadas presentes
+- o programa também permite compactação (hard remove) de banco de dados
 - não é necessaria a criação de nenhum arquivo utilizado pelo programa (exemplo: database.bin), ele cria automaticamente quando necessario
 
 ## Utilização
@@ -21,21 +21,24 @@ ALUNO: GUSTAVO SALMAZO DA SILVA
    remover <nome> <limiar>        - Marca uma imagem para remocao.
    listar                         - Lista todas as imagens ativas no banco.
    compactar                      - Remove permanentemente as imagens marcadas.
-   reconstruir <nome>             - Gera uma media de todas as versoes de uma imagem.
    ajuda                          - Mostra esta mensagem.
 
 ## Breve explicação de cada funcionalidade:
 
-- Inserir: insere uma imagem compactada e limiarizada no arquivo database.bin
+- Inserir: insere uma imagem compactada e limiarizada no arquivo database.bin (agora em ordem alfabetica + ordenada pelo limiar)
 - Exportar: descompacta e cria uma copia da imagem na pasta do programa
 - Listar: lista as imagens que estão salvas no database.bin (e não estão marcadas como removidas)
 - Remover: coloca uma flag de removido na imagem que desejar (mas não a exclui)
 - Compactar: exclui permanentemente os arquivos marcados como removidos do database.bin
-- Reconstruir: pega todas as imagens com mesmo nome do banco de dados e realiza a média aritmética de cada pixel, gerando uma imagem mais proxima da original
-    - a ideia é que quanto mais imagens houver no banco com a mesma origem, mais proxima ela estará da imagem que originou-as
 
+Notas: 
 
-acho que é isso, espero que goste :D
+- removi o sistema de restaurar imagens pois estava dando muitos bugs, e como não
+  era requisito desse trabalho decidi remover pelo bem de minha sanidade mental
+- como utilizei o trabalho 1 como molde aqui, muitas coisas estão bem parecidas,
+  no caso foram mais alterações na forma de leitura/inserção/exportação
+- não fiz o sistema de remoção adicional, como constava no slide, apenas um sistema simples
+  como o professor sugeriu em seu ultimo comentario
 
 */
 
@@ -163,108 +166,119 @@ void displayHelp(const char* programName) {
  printf("  Dados: %s\n", DATABASE);
 }
 
-int storeCompressedImage(const char *pgmFileName, int thresholdLevel, const char *binaryDataFile, const char *btreeFileName) 
-{
-    // --- PART 1: PROCESSAMENTO DA IMAGEM ---
+int storeCompressedImage(const char *pgmFileName, int thresholdLevel, const char *binaryDataFile, const char *btreeFileName)
+{ 
+    // abre o arquivo pgm para leitura
     FILE *pgmInStream = fopen(pgmFileName, "rb");
-    if (!pgmInStream) { perror("Erro ao abrir PGM"); return 0; }
-
+    if (!pgmInStream) { 
+        perror("Erro ao abrir PGM"); 
+        return 0; 
+    }
+    
+    // carrega a imagem do arquivo pgm
     BinaryImage image = loadPgmFile(pgmInStream);
     fclose(pgmInStream);
-
-    if (!image.pixelData) { fprintf(stderr, "Erro ao ler imagem (dados nulos).\n"); return 0; }
-
+    
+    // verifica se conseguiu carregar os dados da imagem
+    if (!image.pixelData) { 
+        fprintf(stderr, "Erro ao ler imagem (dados nulos).\n"); 
+        return 0; 
+    }
+    
+    // aplica o filtro de limiar (transforma em imagem binária)
     applyThreshold(&image, thresholdLevel);
-
+    
+    // comprime a imagem usando rle (run-length encoding)
     int runCount = 0;
     unsigned char startingValue = 0;
     int *runLengthArray = compressToRle(&image, &runCount, &startingValue);
-
-    if (!runLengthArray && runCount > 0) { 
-        free(image.pixelData); 
-        fprintf(stderr, "Erro ao codificar RLE.\n"); 
-        return 0; 
+    
+    // verifica se a compressão funcionou
+    if (!runLengthArray && runCount > 0) {
+        free(image.pixelData);
+        fprintf(stderr, "Erro ao codificar RLE.\n");
+        return 0;
     }
-
-    // --- PART 2: ARMAZENAR DADOS NO ARQUIVO BINÁRIO (HEAP FILE) ---
-    FILE *binOutStream = fopen(binaryDataFile, "ab+"); // Append Binary
-    if (!binOutStream) { 
-        perror("Erro ao abrir arquivo de dados binários"); 
-        free(image.pixelData); 
-        free(runLengthArray); 
-        return 0; 
-    }
-
-    fseek(binOutStream, 0, SEEK_END);
-    long currentOffset = ftell(binOutStream); // Guarda o offset inicial
-
-    // Escreve os dados da imagem comprimida
-    fwrite(&image.imgWidth, sizeof(int), 1, binOutStream);
-    fwrite(&image.imgHeight, sizeof(int), 1, binOutStream);
-    fwrite(&image.maxGrayValue, sizeof(int), 1, binOutStream);
-    fwrite(&startingValue, sizeof(unsigned char), 1, binOutStream);
-    fwrite(&runCount, sizeof(int), 1, binOutStream);
-    if (runCount > 0) fwrite(runLengthArray, sizeof(int), runCount, binOutStream);
-
-    long compressedBytes = ftell(binOutStream) - currentOffset; // Calcula tamanho total
-    fclose(binOutStream);
-
-    // --- PART 3: INSERIR NA B-TREE (CORRIGIDO) ---
     
-    // 1. Prepara o registro (IndexRecord)
-    IndexRecord newRecord;
-    // Importante: Zera a memória para evitar lixo nos bytes de padding ou final da string
-    memset(&newRecord, 0, sizeof(IndexRecord)); 
-    
-    // Copia o nome (respeitando o limite de 50 chars da struct definida)
-    strncpy(newRecord.recordName, pgmFileName, sizeof(newRecord.recordName) - 1);
-    
-    // Preenche os campos usando EXATAMENTE os nomes que você pediu
-    newRecord.thresholdValue = thresholdLevel;
-    newRecord.dataOffset = currentOffset;
-    newRecord.blockSize = compressedBytes;
-    newRecord.isDeleted = 0;
-
-    // 2. Abre a B-Tree
-    FILE *treeFile = btree_open(btreeFileName);
-    if (!treeFile) {
-        fprintf(stderr, "Erro ao abrir ou criar o arquivo da B-Tree.\n");
-        // Nota: O arquivo binário já foi escrito. Em produção, precisaria de rollback.
+    // abre o arquivo de dados em modo append (adiciona no final)
+    FILE *binOutStream = fopen(binaryDataFile, "ab+");
+    if (!binOutStream) {
+        perror("Erro ao abrir arquivo de dados binários");
         free(image.pixelData);
         free(runLengthArray);
         return 0;
     }
-
-    // 3. Insere o registro
-    int insertResult = btree_insert(treeFile, newRecord); 
-
-    // 4. Fecha a B-Tree
+    
+    // vai para o final do arquivo e pega a posição (offset)
+    fseek(binOutStream, 0, SEEK_END);
+    long currentOffset = ftell(binOutStream);
+    
+    // escreve todos os dados da imagem comprimida em sequência:
+    fwrite(&image.imgWidth, sizeof(int), 1, binOutStream);        // largura
+    fwrite(&image.imgHeight, sizeof(int), 1, binOutStream);       // altura
+    fwrite(&image.maxGrayValue, sizeof(int), 1, binOutStream); // valor máximo de cinza
+    fwrite(&startingValue, sizeof(unsigned char), 1, binOutStream); // primeiro bit da compressão
+    fwrite(&runCount, sizeof(int), 1, binOutStream);              // quantas "corridas" tem no rle
+    
+    // escreve o array com os tamanhos das corridas (se existir)
+    if (runCount > 0) {
+        fwrite(runLengthArray, sizeof(int), runCount, binOutStream);
+    }
+    
+    // calcula quantos bytes foram escritos no total
+    long compressedBytes = ftell(binOutStream) - currentOffset;
+    fclose(binOutStream);
+    
+    // prepara o registro que vai ser inserido na b-tree
+    IndexRecord newRecord;
+    memset(&newRecord, 0, sizeof(IndexRecord)); // limpa a memória (evita lixo)
+    
+    // preenche os dados do registro:
+    strncpy(newRecord.recordName, pgmFileName, sizeof(newRecord.recordName) - 1); // nome do arquivo
+    newRecord.thresholdValue = thresholdLevel;  // limiar usado
+    newRecord.dataOffset = currentOffset;       // onde os dados estão no arquivo binário
+    newRecord.blockSize = compressedBytes;      // tamanho dos dados
+    newRecord.isDeleted = 0;                    // marca como não deletado
+    
+    // abre a b-tree (cria se não existir)
+    FILE *treeFile = btree_open(btreeFileName);
+    if (!treeFile) {
+        fprintf(stderr, "Erro ao abrir ou criar o arquivo da B-Tree.\n");
+        free(image.pixelData);
+        free(runLengthArray);
+        return 0;
+    }
+    
+    // tenta inserir o registro na b-tree
+    int insertResult = btree_insert(treeFile, newRecord);
     btree_close(treeFile);
-
+    
+    // verifica se a inserção deu certo
     if (insertResult != 1) {
         fprintf(stderr, "Erro: Chave duplicada ou falha na inserção da B-Tree.\n");
     }
-
-    // --- PART 4: LIMPEZA ---
+    
+    // libera toda a memória que foi alocada
     free(image.pixelData);
     free(runLengthArray);
-
+    
+    // mostra mensagem de sucesso se tudo deu certo
     if (insertResult == 1) {
         printf("Sucesso: Imagem '%s' armazenada.\n", pgmFileName);
         printf(" -> Offset: %ld, Tamanho: %ld bytes\n", currentOffset, compressedBytes);
     }
     
-    return insertResult;
+    return insertResult; // retorna 1 se sucesso, 0 se falhou
 }
 
 // (função exportar) encontra um registro e salva como pgm (p2 ascii).
 int exportRecordToPgm(const char *name, int threshold, const char *dbFile, const char *idxFile) {
-    // A. B-Tree Search
+    // abre o arquivo da arvore com a funcao auxiliar do btree.c
     FILE *tree = btree_open(idxFile);
     if (!tree) return 0;
 
     IndexRecord record;
-    // Uses the version that checks Name + Threshold
+    // aqui a maior mudança foi que ele utiliza o threshold para organizar a ordem além do nome
     if (!btree_search(tree, name, threshold, &record)) {
         printf("Erro: Imagem '%s' com limiar %d nao encontrada.\n", name, threshold);
         btree_close(tree);
@@ -272,13 +286,12 @@ int exportRecordToPgm(const char *name, int threshold, const char *dbFile, const
     }
     btree_close(tree);
 
-    // B. Validation
+    // valida
     if (record.isDeleted) {
         printf("Erro: A imagem solicitada foi excluida.\n");
         return 0;
     }
 
-    // C. Read Binary Data
     FILE *bin = fopen(dbFile, "rb");
     if (!bin) { perror("Erro ao abrir banco de dados"); return 0; }
 
@@ -287,14 +300,14 @@ int exportRecordToPgm(const char *name, int threshold, const char *dbFile, const
     int w, h, maxGray, runs;
     unsigned char startBit;
     
-    // Read Metadata
+    // lÊ os metadados do arquivo
     fread(&w, sizeof(int), 1, bin);
     fread(&h, sizeof(int), 1, bin);
     fread(&maxGray, sizeof(int), 1, bin);
     fread(&startBit, sizeof(unsigned char), 1, bin);
     fread(&runs, sizeof(int), 1, bin);
 
-    // Read RLE Data
+    // le o arquivo (que contém informações comprimidas)
     int *rleData = (int*) malloc(runs * sizeof(int));
     if (!rleData) {
         perror("Erro de memoria ao ler RLE");
@@ -304,7 +317,7 @@ int exportRecordToPgm(const char *name, int threshold, const char *dbFile, const
     fread(rleData, sizeof(int), runs, bin);
     fclose(bin);
 
-    // D. Decompress (Using your function)
+    //chama a função de descompressão (expandFromRLE)
     printf("Descomprimindo imagem (%d x %d)...\n", w, h);
     BinaryImage reconstructedImg = expandFromRle(w, h, maxGray, startBit, rleData, runs);
 
@@ -314,17 +327,15 @@ int exportRecordToPgm(const char *name, int threshold, const char *dbFile, const
         return 0;
     }
 
-    // E. Save to Disk (Using your function)
     char outName[256];
-    // Create a new name (e.g., "export_myimage.pgm") to avoid overwriting the original input
-    snprintf(outName, sizeof(outName), "export_%s", name);
+    // cria um novo nome de arquivo para não sobrescrever nada
+    snprintf(outName, sizeof(outName), "export_%d_%s", threshold, name);
     
     storePgmFile(outName, &reconstructedImg);
     printf("Sucesso! Imagem exportada como: %s\n", outName);
 
-    // F. Cleanup
-    free(rleData); // Free the compressed numbers
-    free(reconstructedImg.pixelData); // Free the expanded pixels (Crucial!)
+    free(rleData);
+    free(reconstructedImg.pixelData); // libera o espaço dos pixels que alocou
     
     return 1;
 }
@@ -333,21 +344,19 @@ int exportRecordToPgm(const char *name, int threshold, const char *dbFile, const
 // (obs: não apaga os dados, só marca)
 int flagEntryForDeletion(const char *indexFileHandle, const char *nameToFlag, int thresholdToFlag) 
 {
-    // 1. Abre a B-Tree
+    // abre a b-tree
     FILE *tree = btree_open(indexFileHandle);
     if (!tree) {
         perror("Erro ao abrir indice para remocao");
         return 0;
     }
 
-    // 2. Chama a nova função que criamos no btree.c
-    // Ela vai buscar o nó, alterar a flag e salvar no disco automaticamente.
+    // chama a funcao auxiliar para "deletar" o item
     int success = btree_delete(tree, nameToFlag, thresholdToFlag);
 
-    // 3. Fecha o arquivo
     btree_close(tree);
 
-    // 4. Feedback
+    // fala pra mim se deu bom
     if (success) {
         printf("Sucesso: Registro '%s' (Limiar %d) marcado como removido.\n", nameToFlag, thresholdToFlag);
         return 1;

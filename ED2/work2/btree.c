@@ -2,61 +2,71 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Add these constants at the top of your file if not already defined
-
+// constantes para arquivos temporários durante compactação
 #define TEMP_DATABASE "temp_data.bin"
 #define TEMP_INDEX_BTREE "temp_index.btree"
 
-// --- Helper: Read/Write Nodes ---
+// === funções auxiliares para comparação ===
 
+// compara duas chaves (nome + limiar) - usado internamente pela b-tree
 int compare_keys(const char* name1, int thresh1, const char* name2, int thresh2) {
+    // primeiro compara os nomes
     int nameCmp = strcmp(name1, name2);
     if (nameCmp != 0) return nameCmp;
     
+    // se nomes iguais, compara limiares
     if (thresh1 < thresh2) return -1;
     if (thresh1 > thresh2) return 1;
     
-    return 0; // Exact match
+    return 0; // chaves idênticas
 }
 
+// compara uma chave de busca com um registro existente
 int compare_records(const char* keyName, int keyThreshold, IndexRecord existingRecord) {
-    // 1. Compare Names first
+    // 1. compara nomes primeiro
     int nameCmp = strncmp(keyName, existingRecord.recordName, 50);
     
-    // 2. If names are different, return that result
+    // 2. se nomes diferentes, retorna resultado
     if (nameCmp != 0) {
         return nameCmp;
     }
     
-    // 3. If names are EQUAL, compare thresholds
-    // This allows "img.pgm" (100) and "img.pgm" (150) to exist together
+    // 3. se nomes iguais, compara limiares
+    // isso permite "img.pgm" (100) e "img.pgm" (150) existirem juntos
     if (keyThreshold < existingRecord.thresholdValue) return -1;
     if (keyThreshold > existingRecord.thresholdValue) return 1;
     
-    return 0; // Exactly the same record
+    return 0; // registro exatamente igual
 }
 
+// === funções de leitura/escrita de nós ===
+
+// lê um nó do arquivo na posição especificada
 void read_node(FILE *f, long offset, BTreeNode *node) {
     if (offset == INVALID_OFFSET) return;
     fseek(f, offset, SEEK_SET);
     fread(node, sizeof(BTreeNode), 1, f);
 }
 
+// escreve um nó no arquivo na posição especificada
 void write_node(FILE *f, long offset, BTreeNode *node) {
     fseek(f, offset, SEEK_SET);
     fwrite(node, sizeof(BTreeNode), 1, f);
 }
 
+// lê o cabeçalho do arquivo (sempre no início)
 void read_header(FILE *f, BTreeHeader *header) {
     fseek(f, 0, SEEK_SET);
     fread(header, sizeof(BTreeHeader), 1, f);
 }
 
+// escreve o cabeçalho no arquivo (sempre no início)
 void write_header(FILE *f, BTreeHeader *header) {
     fseek(f, 0, SEEK_SET);
     fwrite(header, sizeof(BTreeHeader), 1, f);
 }
 
+// obtém um novo offset para escrever um nó (sempre no final do arquivo)
 long get_new_node_offset(FILE *f, BTreeHeader *header) {
     long offset = header->nextFreeOffset;
     header->nextFreeOffset += sizeof(BTreeNode);
@@ -64,41 +74,47 @@ long get_new_node_offset(FILE *f, BTreeHeader *header) {
     return offset;
 }
 
-// --- Management Functions ---
+// === funções de gerenciamento de arquivos ===
 
+// abre ou cria um arquivo de b-tree
 FILE* btree_open(const char* filename) {
+    // tenta abrir arquivo existente
     FILE *f = fopen(filename, "rb+");
     if (!f) {
-        // Create new if doesn't exist
+        // se não existe, cria novo
         f = fopen(filename, "wb+");
         if (!f) return NULL;
 
+        // inicializa cabeçalho
         BTreeHeader header;
         header.rootNodeOffset = sizeof(BTreeHeader);
         header.nextFreeOffset = header.rootNodeOffset + sizeof(BTreeNode);
         write_header(f, &header);
 
-       BTreeNode root;
-    memset(&root, 0, sizeof(BTreeNode)); // Zera tudo
-    
-    // CORREÇÃO CRÍTICA: Definir filhos como inválidos (-1)
-    for(int i=0; i < 2*BTREE_ORDER; i++) {
-        root.children[i] = INVALID_OFFSET; 
-    }
+        // cria nó raiz vazio
+        BTreeNode root;
+        memset(&root, 0, sizeof(BTreeNode)); // zera tudo
+        
+        // importante: define todos os filhos como inválidos
+        for(int i=0; i < 2*BTREE_ORDER; i++) {
+            root.children[i] = INVALID_OFFSET; 
+        }
 
-    root.isLeaf = 1;
-    root.numKeys = 0;
-    write_node(f, header.rootNodeOffset, &root);
+        root.isLeaf = 1;    // raiz começa como folha
+        root.numKeys = 0;   // sem chaves inicialmente
+        write_node(f, header.rootNodeOffset, &root);
     }
     return f;
 }
 
+// fecha o arquivo da b-tree
 void btree_close(FILE* treeFile) {
     if (treeFile) fclose(treeFile);
 }
 
-// --- Search Logic ---
+// === lógica de busca ===
 
+// procura por uma chave específica na b-tree
 int btree_search(FILE* treeFile, const char* key, int threshold, IndexRecord* foundRecord) {
     BTreeHeader header;
     read_header(treeFile, &header);
@@ -106,87 +122,87 @@ int btree_search(FILE* treeFile, const char* key, int threshold, IndexRecord* fo
     long currentOffset = header.rootNodeOffset;
     BTreeNode node;
 
+    // percorre a árvore de cima para baixo
     while (currentOffset != INVALID_OFFSET) {
         read_node(treeFile, currentOffset, &node);
         
         int i = 0;
-        // Use the new helper here too!
+        // encontra a primeira chave maior que a procurada
         while (i < node.numKeys && compare_keys(key, threshold, node.records[i].recordName, node.records[i].thresholdValue) > 0) {
             i++;
         }
 
-        // Check if equal (Name == Name AND Threshold == Threshold)
+        // verifica se encontrou exatamente (nome == nome AND limiar == limiar)
         if (i < node.numKeys && compare_keys(key, threshold, node.records[i].recordName, node.records[i].thresholdValue) == 0) {
             if (foundRecord) *foundRecord = node.records[i];
-            return 1; // Found exact match
+            return 1; // encontrou correspondência exata
         }
 
-        if (node.isLeaf) return 0; // Not found
-        currentOffset = node.children[i];
+        if (node.isLeaf) return 0; // chegou na folha, não encontrou
+        currentOffset = node.children[i]; // desce para o filho apropriado
     }
     return 0;
 }
 
-// --- Insert Logic (Splitting) ---
+// === lógica de inserção (com divisão de nós) ===
 
-// 
+// divide um nó filho que está cheio
 void btree_split_child(FILE *f, long parentOffset, BTreeNode *parent, int i, BTreeHeader *header) {
     long childOffset = parent->children[i];
     BTreeNode child;
     read_node(f, childOffset, &child);
 
-    // Create 'z' (new node)
+    // cria novo nó (metade direita)
     long newChildOffset = get_new_node_offset(f, header);
     BTreeNode newChild;
     memset(&newChild, 0, sizeof(BTreeNode));
     
-    // --- FIX START: INITIALIZE POINTERS TO -1 ---
+    // inicializa ponteiros como inválidos
     for(int k=0; k < 2*BTREE_ORDER; k++) {
         newChild.children[k] = INVALID_OFFSET;
     }
-    // --- FIX END ---
 
     newChild.isLeaf = child.isLeaf;
     newChild.numKeys = BTREE_ORDER - 1;
 
-    // Copy top half of keys to newChild
+    // copia metade superior das chaves para o novo nó
     for (int j = 0; j < BTREE_ORDER - 1; j++) {
         newChild.records[j] = child.records[j + BTREE_ORDER];
     }
 
-    // Copy children pointers if not leaf
+    // copia ponteiros dos filhos se não for folha
     if (!child.isLeaf) {
         for (int j = 0; j < BTREE_ORDER; j++) {
             newChild.children[j] = child.children[j + BTREE_ORDER];
-            // Clean up the moved pointers in the old child (optional but good for debugging)
+            // limpa os ponteiros movidos no nó antigo
             child.children[j + BTREE_ORDER] = INVALID_OFFSET;
         }
     }
 
     child.numKeys = BTREE_ORDER - 1;
 
-    // Shift parent children to right
+    // desloca filhos do pai para a direita
     for (int j = parent->numKeys; j >= i + 1; j--) {
         parent->children[j + 1] = parent->children[j];
     }
     parent->children[i + 1] = newChildOffset;
 
-    // Shift parent keys to right
+    // desloca chaves do pai para a direita
     for (int j = parent->numKeys - 1; j >= i; j--) {
         parent->records[j + 1] = parent->records[j];
     }
 
-    // Move median key up to parent
+    // move chave mediana para o pai
     parent->records[i] = child.records[BTREE_ORDER - 1];
     parent->numKeys++;
 
-    // Save changes
+    // salva mudanças
     write_node(f, childOffset, &child);
     write_node(f, newChildOffset, &newChild);
     write_node(f, parentOffset, parent);
 }
 
-// Requires the compare_keys function above
+// insere em um nó que não está cheio
 void btree_insert_non_full(FILE *f, long nodeOffset, IndexRecord k, BTreeHeader *header) {
     BTreeNode node;
     read_node(f, nodeOffset, &node);
@@ -194,21 +210,19 @@ void btree_insert_non_full(FILE *f, long nodeOffset, IndexRecord k, BTreeHeader 
     int i = node.numKeys - 1;
 
     if (node.isLeaf) {
-        // FIXED: Use compare_keys instead of strcmp
-        // Shift keys right to make space
+        // desloca chaves para a direita para abrir espaço
         while (i >= 0 && compare_keys(k.recordName, k.thresholdValue, node.records[i].recordName, node.records[i].thresholdValue) < 0) {
             node.records[i + 1] = node.records[i];
             i--;
         }
         
-        // Insert struct
+        // insere o novo registro
         node.records[i + 1] = k;
         node.numKeys++;
         write_node(f, nodeOffset, &node);
     } 
     else {
-        // FIXED: Use compare_keys instead of strcmp
-        // Find child index
+        // encontra índice do filho correto
         while (i >= 0 && compare_keys(k.recordName, k.thresholdValue, node.records[i].recordName, node.records[i].thresholdValue) < 0) {
             i--;
         }
@@ -218,11 +232,11 @@ void btree_insert_non_full(FILE *f, long nodeOffset, IndexRecord k, BTreeHeader 
         BTreeNode child;
         read_node(f, childOffset, &child);
 
-        // If child is full, split it
-        if (child.numKeys == 2 * BTREE_ORDER - 1) { // Ensure ORDER matches your header (ORDER vs BTREE_ORDER)
+        // se filho está cheio, divide ele
+        if (child.numKeys == 2 * BTREE_ORDER - 1) {
             btree_split_child(f, nodeOffset, &node, i, header);
             
-            // FIXED: Use compare_keys to decide which half gets the new key
+            // decide qual metade recebe a nova chave
             if (compare_keys(k.recordName, k.thresholdValue, node.records[i].recordName, node.records[i].thresholdValue) > 0) {
                 i++;
             }
@@ -232,30 +246,30 @@ void btree_insert_non_full(FILE *f, long nodeOffset, IndexRecord k, BTreeHeader 
     }
 }
 
+// função principal de inserção
 int btree_insert(FILE *treeFile, IndexRecord record) {
     BTreeHeader header;
     read_header(treeFile, &header);
 
-    // Check Duplicate
+    // verifica duplicata
     IndexRecord temp;
     if (btree_search(treeFile, record.recordName, record.thresholdValue, &temp)) {
-        return 0; 
+        return 0; // já existe
     }
 
     BTreeNode root;
     read_node(treeFile, header.rootNodeOffset, &root);
 
-    // If root is full, tree grows in height
-    if (root.numKeys == 2 * BTREE_ORDER - 1) { // Fixed typo here too
+    // se raiz está cheia, árvore cresce em altura
+    if (root.numKeys == 2 * BTREE_ORDER - 1) {
         long newRootOffset = get_new_node_offset(treeFile, &header);
         BTreeNode newRoot;
         memset(&newRoot, 0, sizeof(BTreeNode));
         
-        // --- FIX START: INITIALIZE POINTERS TO -1 ---
+        // inicializa ponteiros como inválidos
         for(int k=0; k < 2*BTREE_ORDER; k++) {
             newRoot.children[k] = INVALID_OFFSET;
         }
-        // --- FIX END ---
         
         newRoot.isLeaf = 0;
         newRoot.numKeys = 0;
@@ -263,14 +277,14 @@ int btree_insert(FILE *treeFile, IndexRecord record) {
 
         write_node(treeFile, newRootOffset, &newRoot);
 
-        // Update header
+        // atualiza cabeçalho
         header.rootNodeOffset = newRootOffset;
         write_header(treeFile, &header);
 
-        // Split the old root
+        // divide a raiz antiga
         btree_split_child(treeFile, newRootOffset, &newRoot, 0, &header);
 
-        // Insert
+        // insere
         btree_insert_non_full(treeFile, newRootOffset, record, &header);
     } else {
         btree_insert_non_full(treeFile, header.rootNodeOffset, record, &header);
@@ -278,103 +292,105 @@ int btree_insert(FILE *treeFile, IndexRecord record) {
     return 1;
 }
 
-// Add this helper function
+// === funções de debug e validação ===
+
+// valida se o arquivo da b-tree está íntegro
 int validate_btree_file(FILE *treeFile) {
     BTreeHeader header;
     read_header(treeFile, &header);
     
-    printf("Validando arquivo B-Tree...\n");
-    printf("Root offset: %ld\n", header.rootNodeOffset);
-    printf("Next free offset: %ld\n", header.nextFreeOffset);
+    printf("validando arquivo b-tree...\n");
+    printf("root offset: %ld\n", header.rootNodeOffset);
+    printf("next free offset: %ld\n", header.nextFreeOffset);
     
-    // Check if root offset makes sense
+    // verifica se offset da raiz faz sentido
     if (header.rootNodeOffset < sizeof(BTreeHeader)) {
-        printf("[ERRO] Root offset invalido!\n");
+        printf("[erro] root offset invalido!\n");
         return 0;
     }
     
-    // Try to read root
+    // tenta ler raiz
     BTreeNode root;
     fseek(treeFile, header.rootNodeOffset, SEEK_SET);
     if (fread(&root, sizeof(BTreeNode), 1, treeFile) != 1) {
-        printf("[ERRO] Nao foi possivel ler no raiz!\n");
+        printf("[erro] nao foi possivel ler no raiz!\n");
         return 0;
     }
     
     if (root.numKeys < 0 || root.numKeys > 2 * BTREE_ORDER) {
-        printf("[ERRO] No raiz corrompido: numKeys = %d\n", root.numKeys);
+        printf("[erro] no raiz corrompido: numkeys = %d\n", root.numKeys);
         return 0;
     }
     
-    printf("Arquivo parece valido.\n");
+    printf("arquivo parece valido.\n");
     return 1;
 }
 
+// mostra estrutura detalhada da b-tree para debug
 void debug_btree_structure(FILE *treeFile) {
-    printf("\n=== DIAGNÓSTICO DA B-TREE ===\n");
+    printf("\n=== diagnóstico da b-tree ===\n");
     
-    // 1. Ler header
+    // ler cabeçalho
     BTreeHeader header;
     read_header(treeFile, &header);
-    printf("Header:\n");
-    printf("  Root offset: %ld\n", header.rootNodeOffset);
-    printf("  Next free offset: %ld\n", header.nextFreeOffset);
-    printf("  Tamanho esperado do header: %zu\n", sizeof(BTreeHeader));
-    printf("  Tamanho esperado do nó: %zu\n", sizeof(BTreeNode));
+    printf("header:\n");
+    printf("  root offset: %ld\n", header.rootNodeOffset);
+    printf("  next free offset: %ld\n", header.nextFreeOffset);
+    printf("  tamanho esperado do header: %zu\n", sizeof(BTreeHeader));
+    printf("  tamanho esperado do nó: %zu\n", sizeof(BTreeNode));
     
-    // 2. Verificar se o root offset faz sentido
+    // verificar se o root offset faz sentido
     long expectedRootOffset = sizeof(BTreeHeader);
-    printf("  Root offset esperado: %ld\n", expectedRootOffset);
+    printf("root offset esperado: %ld\n", expectedRootOffset);
     
     if (header.rootNodeOffset != expectedRootOffset) {
-        printf("  ❌ PROBLEMA: Root offset incorreto!\n");
+        printf("  ❌ problema: root offset incorreto!\n");
     }
     
-    // 3. Tentar ler o nó raiz
-    printf("\nTentando ler nó raiz em offset %ld:\n", header.rootNodeOffset);
+    // tentar ler o nó raiz
+    printf("\ntentando ler nó raiz em offset %ld:\n", header.rootNodeOffset);
     
     BTreeNode root;
     fseek(treeFile, header.rootNodeOffset, SEEK_SET);
     if (fread(&root, sizeof(BTreeNode), 1, treeFile) != 1) {
-        printf("  ❌ Falha ao ler nó raiz!\n");
+        printf("falha ao ler nó raiz!\n");
         return;
     }
     
-    printf("  numKeys: %d\n", root.numKeys);
-    printf("  isLeaf: %d\n", root.isLeaf);
+    printf("numkeys: %d\n", root.numKeys);
+    printf("isleaf: %d\n", root.isLeaf);
     
-    // 4. Se numKeys parece válido, mostrar os dados
+    // se numkeys parece válido, mostrar os dados
     if (root.numKeys >= 0 && root.numKeys <= 2 * BTREE_ORDER) {
-        printf("  ✅ Nó raiz parece válido\n");
+        printf("nó raiz parece válido\n");
         
         for (int i = 0; i < root.numKeys; i++) {
-            printf("    Registro %d: %s (limiar %d, deleted=%d)\n", 
+            printf("registro %d: %s (limiar %d, deleted=%d)\n", 
                    i, root.records[i].recordName, 
                    root.records[i].thresholdValue,
                    root.records[i].isDeleted);
-            printf("      dataOffset: %ld, blockSize: %ld\n",
+            printf("dataoffset: %ld, blocksize: %ld\n",
                    root.records[i].dataOffset, root.records[i].blockSize);
         }
         
         if (!root.isLeaf) {
-            printf("    Filhos:\n");
+            printf(" filhos:\n");
             for (int i = 0; i <= root.numKeys; i++) {
-                printf("      children[%d]: %ld\n", i, root.children[i]);
+                printf(" children[%d]: %ld\n", i, root.children[i]);
                 
-                // ⚠️ AQUI ESTÁ O PROBLEMA PROVÁVEL!
                 if (root.children[i] != INVALID_OFFSET && root.children[i] < 1000) {
-                    printf("        ❌ SUSPEITO: Offset muito pequeno (%ld)!\n", root.children[i]);
+                    printf(" suspeito: offset muito pequeno (%ld)!\n", root.children[i]);
                 }
             }
         }
     } else {
-        printf("  ❌ Nó raiz corrompido!\n");
+        printf(" nó raiz corrompido!\n");
         
-        // Mostrar os primeiros bytes como hex para debug
-        printf("  Primeiros 32 bytes do nó:\n  ");
+        // mostra os primeiros bytes como hex para debug
+        printf("  primeiros 32 bytes do nó:\n  ");
         unsigned char *nodeBytes = (unsigned char*)&root;
         for (int i = 0; i < 32 && i < sizeof(BTreeNode); i++) {
-            printf("%02X ", nodeBytes[i]);
+            printf("%02x ", nodeBytes[i]);
             if ((i + 1) % 16 == 0) printf("\n  ");
         }
         printf("\n");
@@ -383,55 +399,57 @@ void debug_btree_structure(FILE *treeFile) {
     printf("===============================\n\n");
 }
 
+// === funções de coleta e travessia ===
 
-
+// coleta recursivamente todos os registros válidos de um nó
 void _collect_from_node(FILE *treeFile, long nodeOffset, IndexRecord **records, int *count, int *capacity) {
     if (nodeOffset == INVALID_OFFSET) return;
     
-    // Safety checks
+    // verificações de segurança
     if (nodeOffset < sizeof(BTreeHeader)) return;
     
     BTreeNode node;
     fseek(treeFile, nodeOffset, SEEK_SET);
     if (fread(&node, sizeof(BTreeNode), 1, treeFile) != 1) return;
     
-    // Validate node
+    // valida nó
     if (node.numKeys < 0 || node.numKeys > 2 * BTREE_ORDER) {
-        printf("Aviso: No corrompido encontrado (offset %ld), pulando...\n", nodeOffset);
+        printf("aviso: nó corrompido encontrado (offset %ld), pulando...\n", nodeOffset);
         return;
     }
 
-    // Traverse in-order
+    // percorre em ordem (in-order traversal)
     for (int i = 0; i < node.numKeys; i++) {
-        // Process left child first
+        // processa filho esquerdo primeiro
         if (!node.isLeaf) {
             _collect_from_node(treeFile, node.children[i], records, count, capacity);
         }
         
-        // Process current record
-        if (node.records[i].isDeleted == 0) { // Not deleted
-            // Expand array if needed
+        // processa registro atual
+        if (node.records[i].isDeleted == 0) { // não deletado
+            // expande array se necessário
             if (*count >= *capacity) {
                 *capacity *= 2;
                 *records = realloc(*records, *capacity * sizeof(IndexRecord));
                 if (!*records) {
-                    printf("Erro de memoria durante coleta.\n");
+                    printf("erro de memoria durante coleta.\n");
                     return;
                 }
             }
             
-            // Add to collection
+            // adiciona à coleção
             (*records)[*count] = node.records[i];
             (*count)++;
         }
     }
     
-    // Process rightmost child
+    // processa filho mais à direita
     if (!node.isLeaf) {
         _collect_from_node(treeFile, node.children[node.numKeys], records, count, capacity);
     }
 }
 
+// imprime recursivamente toda a árvore
 void _btree_print_recursive(FILE *f, long nodeOffset) {
     if (nodeOffset == INVALID_OFFSET) return;
 
@@ -440,12 +458,12 @@ void _btree_print_recursive(FILE *f, long nodeOffset) {
 
     int i;
     for (i = 0; i < node.numKeys; i++) {
-        // 1. Go Left
+        // vai para esquerda
         if (!node.isLeaf) _btree_print_recursive(f, node.children[i]);
         
-        // 2. Print Current Key
+        // imprime chave atual
         if(!node.records[i].isDeleted){
-            printf("Imagem: %-20s | Limiar: %3d | Offset: %ld | Size: %ld\n", 
+            printf("imagem: %-20s | limiar: %3d | offset: %ld | size: %ld\n", 
                 node.records[i].recordName, 
                 node.records[i].thresholdValue,
                 node.records[i].dataOffset,
@@ -453,10 +471,13 @@ void _btree_print_recursive(FILE *f, long nodeOffset) {
         }
     }
 
-    // 3. Go Right (Last child)
+    // vai para direita (último filho)
     if (!node.isLeaf) _btree_print_recursive(f, node.children[i]);
 }
 
+// === funções de deleção e compactação ===
+
+// marca um registro como deletado (deleção preguiçosa)
 int btree_delete(FILE* treeFile, const char* key, int threshold) {
     BTreeHeader header;
     read_header(treeFile, &header);
@@ -464,89 +485,87 @@ int btree_delete(FILE* treeFile, const char* key, int threshold) {
     long currentOffset = header.rootNodeOffset;
     BTreeNode node;
 
-    // Traverse the tree just like Search
+    // percorre a árvore como na busca
     while (currentOffset != INVALID_OFFSET) {
         read_node(treeFile, currentOffset, &node);
         
         int i = 0;
-        // Find the first key greater than or equal to target
+        // encontra a primeira chave maior ou igual ao alvo
         while (i < node.numKeys && compare_keys(key, threshold, node.records[i].recordName, node.records[i].thresholdValue) > 0) {
             i++;
         }
 
-        // Check if we found the EXACT match
+        // verifica se encontrou correspondência exata
         if (i < node.numKeys && compare_keys(key, threshold, node.records[i].recordName, node.records[i].thresholdValue) == 0) {
             
-            // --- THE CHANGE ---
             if (node.records[i].isDeleted == 1) {
-                return 0; // Already deleted
+                return 0; // já deletado
             }
 
-            // 1. Mark as deleted
+            // marca como deletado
             node.records[i].isDeleted = 1;
 
-            // 2. Write the modified node BACK to the same offset
+            // escreve o nó modificado de volta no mesmo offset
             write_node(treeFile, currentOffset, &node);
             
-            return 1; // Success
+            return 1; // sucesso
         }
 
-        // Not found in this node...
+        // não encontrado neste nó...
         if (node.isLeaf) {
-            return 0; // Reached bottom, record doesn't exist
+            return 0; // chegou no fundo, registro não existe
         }
 
-        // Go deeper
+        // vai mais fundo
         currentOffset = node.children[i];
     }
     return 0;
 }
 
-
-
-// Helper function to collect all valid records from B-tree
+// coleta todos os registros válidos da b-tree
 IndexRecord* btree_collect_all_records(FILE *treeFile, int *totalRecords) {
     *totalRecords = 0;
-    int capacity = 100; // Initial capacity
+    int capacity = 100; // capacidade inicial
     IndexRecord *records = malloc(capacity * sizeof(IndexRecord));
     if (!records) {
-        printf("Erro: Sem memoria para coletar registros.\n");
+        printf("erro: sem memoria para coletar registros.\n");
         return NULL;
     }
     
     BTreeHeader header;
     read_header(treeFile, &header);
     
-    // Use the existing helper function to collect records in-order
+    // usa a função auxiliar existente para coletar registros em ordem
     _collect_from_node(treeFile, header.rootNodeOffset, &records, totalRecords, &capacity);
     
-    printf("Coletados %d registros validos da B-tree.\n", *totalRecords);
+    printf("coletados %d registros validos da b-tree.\n", *totalRecords);
     return records;
 }
 
+// compacta o banco de dados removendo registros deletados
 int btree_compact_database(const char *binaryDataFile, const char *btreeIndexFile) {
-    printf("Iniciando compactacao do banco de dados...\n");
+    printf("iniciando compactacao do banco de dados...\n");
     
-    // 1. Open original files
+    // abre arquivos originais
     FILE *binInStream = fopen(binaryDataFile, "rb");
     if (!binInStream) {
-        perror("Erro ao abrir arquivo de dados original");
+        perror("erro ao abrir arquivo de dados original");
         return -1;
     }
     
     FILE *btreeInStream = btree_open(btreeIndexFile);
     if (!btreeInStream) {
         fclose(binInStream);
-        perror("Erro ao abrir B-tree original");
+        perror("erro ao abrir b-tree original");
         return -1;
     }
     
-    // 2. Create temporary files
+    // cria arquivos temporários
     FILE *tempDataStream = fopen(TEMP_DATABASE, "wb");
     if (!tempDataStream) {
         fclose(binInStream);
         btree_close(btreeInStream);
-        perror("Erro ao criar arquivo de dados temporario");
+        perror("erro ao criar arquivo de dados temporario");
         return -1;
     }
     
@@ -555,11 +574,11 @@ int btree_compact_database(const char *binaryDataFile, const char *btreeIndexFil
         fclose(binInStream);
         btree_close(btreeInStream);
         fclose(tempDataStream);
-        perror("Erro ao criar B-tree temporaria");
+        perror("erro ao criar b-tree temporaria");
         return -1;
     }
     
-    // 3. Collect all valid records from original B-tree
+    // coleta todos os registros válidos da b-tree original
     int totalRecords = 0;
     IndexRecord *validRecords = btree_collect_all_records(btreeInStream, &totalRecords);
     if (!validRecords) {
@@ -570,14 +589,14 @@ int btree_compact_database(const char *binaryDataFile, const char *btreeIndexFil
         return -1;
     }
     
-    // 4. Copy data and rebuild index
+    // copia dados e reconstrói índice
     long newOffset = 0;
     int recordsCopied = 0;
     const size_t BUF_SZ = 8192;
     char *copyBuffer = malloc(BUF_SZ);
     
     if (!copyBuffer) {
-        perror("Sem memoria para buffer de copia");
+        perror("sem memoria para buffer de copia");
         free(validRecords);
         fclose(binInStream);
         btree_close(btreeInStream);
@@ -586,33 +605,33 @@ int btree_compact_database(const char *binaryDataFile, const char *btreeIndexFil
         return -1;
     }
     
-    printf("Copiando %d registros validos...\n", totalRecords);
+    printf("copiando %d registros validos...\n", totalRecords);
     
     for (int i = 0; i < totalRecords; i++) {
         IndexRecord currentRecord = validRecords[i];
         
-        // Skip if somehow a deleted record got through
+        // pula se de alguma forma um registro deletado passou
         if (currentRecord.isDeleted == 1) {
             continue;
         }
         
-        printf("Copiando: %s (limiar %d) - %ld bytes\n", 
+        printf("copiando: %s (limiar %d) - %ld bytes\n", 
                currentRecord.recordName, 
                currentRecord.thresholdValue, 
                currentRecord.blockSize);
         
-        // Seek to original position in data file
+        // busca posição original no arquivo de dados
         fseek(binInStream, currentRecord.dataOffset, SEEK_SET);
         
         long remainingBytes = currentRecord.blockSize;
         
-        // Copy data in chunks
+        // copia dados em pedaços
         while (remainingBytes > 0) {
             size_t bytesToRead = (remainingBytes > (long)BUF_SZ) ? BUF_SZ : (size_t)remainingBytes;
             size_t bytesRead = fread(copyBuffer, 1, bytesToRead, binInStream);
             
             if (bytesRead == 0) {
-                printf("Aviso: Falha na leitura do registro %s\n", currentRecord.recordName);
+                printf("aviso: falha na leitura do registro %s\n", currentRecord.recordName);
                 break;
             }
             
@@ -620,21 +639,21 @@ int btree_compact_database(const char *binaryDataFile, const char *btreeIndexFil
             remainingBytes -= bytesRead;
         }
         
-        // Create new record with updated offset
+        // cria novo registro com offset atualizado
         IndexRecord newRecord = currentRecord;
         newRecord.dataOffset = newOffset;
-        newRecord.isDeleted = 0; // Ensure it's marked as valid
+        newRecord.isDeleted = 0; // garante que está marcado como válido
         
-        // Insert into new B-tree
+        // insere na nova b-tree
         if (btree_insert(tempBtreeStream, newRecord)) {
             recordsCopied++;
             newOffset += currentRecord.blockSize;
         } else {
-            printf("Aviso: Falha ao inserir %s na nova B-tree\n", currentRecord.recordName);
+            printf("aviso: falha ao inserir %s na nova b-tree\n", currentRecord.recordName);
         }
     }
     
-    // 5. Cleanup
+    // limpeza
     free(copyBuffer);
     free(validRecords);
     fclose(binInStream);
@@ -642,38 +661,38 @@ int btree_compact_database(const char *binaryDataFile, const char *btreeIndexFil
     fclose(tempDataStream);
     btree_close(tempBtreeStream);
     
-    // 6. Replace original files with compacted versions
-    printf("Substituindo arquivos originais...\n");
+    // substitui arquivos originais pelas versões compactadas
+    printf("substituindo arquivos originais...\n");
     
     if (remove(binaryDataFile) != 0) {
-        perror("Aviso: nao foi possivel remover arquivo de dados antigo");
+        perror("aviso: nao foi possivel remover arquivo de dados antigo");
     }
     if (rename(TEMP_DATABASE, binaryDataFile) != 0) {
-        perror("Erro critico: nao foi possivel renomear arquivo de dados");
+        perror("erro critico: nao foi possivel renomear arquivo de dados");
         return -1;
     }
     
     if (remove(btreeIndexFile) != 0) {
-        perror("Aviso: nao foi possivel remover B-tree antiga");
+        perror("aviso: nao foi possivel remover b-tree antiga");
     }
     if (rename(TEMP_INDEX_BTREE, btreeIndexFile) != 0) {
-        perror("Erro critico: nao foi possivel renomear B-tree");
+        perror("erro critico: nao foi possivel renomear b-tree");
         return -1;
     }
     
-    printf("Compactacao concluida com sucesso!\n");
-    printf("Registros copiados: %d\n", recordsCopied);
-    printf("Espaco liberado: registros deletados foram removidos.\n");
+    printf("compactacao concluida com sucesso!\n");
+    printf("registros copiados: %d\n", recordsCopied);
+    printf("espaco liberado: registros deletados foram removidos.\n");
     
     return recordsCopied;
 }
 
-// Public function called by main
+// função pública chamada pelo main - imprime toda a árvore
 void btree_print_all(FILE *treeFile) {
     BTreeHeader header;
     read_header(treeFile, &header);
     
-    printf("\n=== IMAGENS NO INDICE (B-Tree) ===\n");
+    printf("\n=== imagens no indice (b-tree) ===\n");
     _btree_print_recursive(treeFile, header.rootNodeOffset);
     printf("==================================\n");
 }
